@@ -1,0 +1,46 @@
+[project]
+name = "autosense_agentic_rag"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "psycopg[binary]",
+    "sqlalchemy>=2",
+    "qdrant-client>=1.7",
+    "sentence-transformers",
+    "pydantic",
+    "python-dotenv",
+    "pytest",
+    "httpx",
+    "ruff",
+    "mypy",
+    "streamlit",
+    "openai",
+    "requests",
+    "tqdm",
+    "pandas",
+    "numpy",
+    "evaluate",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+dev = [
+    "pytest-asyncio",
+    "black",
+    "isort",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true 

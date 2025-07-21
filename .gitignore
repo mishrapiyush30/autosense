@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Data & models
+data/
+*.parquet
+*.db
+autosense.db
+
+# Docker / Build
+*.env
+.env.*
+dist/
+build/
+
+# VSCode / PyCharm
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp 

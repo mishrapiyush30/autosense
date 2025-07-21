@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: example
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql:/sql
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:v1.7.3
+    volumes:
+      - qdrantdata:/qdrant/storage
+    ports: ["6333:6333"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+    volumes: [".:/code"]
+    environment:
+      - DATABASE_URL=postgresql+psycopg://postgres:example@postgres:5432/postgres
+      - QDRANT_URL=http://qdrant:6333
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    ports: ["8000:8000"]
+
+volumes:
+  pgdata:
+  qdrantdata: 

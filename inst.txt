@@ -1,0 +1,580 @@
+### **Project Blueprint: “AutoSense Agentic RAG” — an end‑to‑end AI diagnostic platform for connected cars**
+
+This single project intentionally bundles every competency Conexio AI lists—software fundamentals, agentic workflows, RAG, data engineering, SQL, dashboards, deployment, and (bonus) automotive domain knowledge.
+
+---
+
+#### 1 · Problem & vision
+
+Drivers and fleet operators drown in cryptic OBD‑II fault codes, recall notices, sensor anomalies, and scattered PDF manuals. **AutoSense** ingests these disparate sources, indexes them in a vector store, and exposes a ReAct‑style agent that can:
+
+* interpret live trouble codes, recalls, or sensor spikes,
+* retrieve manufacturer guidance + similar historical cases,
+* reason through edge‑cases (e.g., no match, malformed VIN), and
+* return a ranked diagnosis with repair steps, citations, and confidence.
+
+---
+
+#### 2 · Data layer
+
+| Source                                                           | Purpose                                          | Ingestion  |
+| ---------------------------------------------------------------- | ------------------------------------------------ | ---------- |
+| **NHTSA Recalls API** – official safety‑recall feed ([NHTSA][1]) | Cloud‑to‑cloud JSON pull (daily Airflow DAG)     |            |
+| **OBD‑II Trouble‑Code list** (GitHub CSV) ([GitHub][2])          | Static seed table in Postgres                    |            |
+| **Vehicle telematics sensor set** (Kaggle) ([Kaggle][3])         | Batch parquet → S3 → Iceberg table for analytics |            |
+
+*Schema highlights*: `vehicle(id, vin, make, model, year)`, `dtc(code, category, description)`, `recall(nhtsa_id, vin, date, summary)`, partitioned `sensor_reading` table (vehicle\_id/date).
+
+---
+
+#### 3 · Retrieval & knowledge store
+
+1. **Text+code embedding** – MiniLM or Contriever on cleaned recall text, DTC descriptions, selected manual snippets.
+2. **Vector DB** – Qdrant for similarity + metadata filters (VIN, model‑year).
+3. **Hybrid search** – BM25 fallback for zero‑shot queries.
+
+---
+
+#### 4 · Agentic reasoning loop (ReAct ≥ SimpleAgent)
+
+```pseudo
+Think: “User sent P0420 on 2017 Civic”
+Retrieve: top‑k docs (vector + BM25)
+Act:
+  • if VIN supplied → cross‑check open recalls
+  • if match.no_results → fallback “code explainer” chain
+Aggregate: compose answer + citations
+Reflect: log outcome, score retrieval vs. ground‑truth
+```
+
+Edge cases logged with tags (`EMPTY_QUERY`, `UNKNOWN_VIN`, `LONG_CTX_TRUNC`) and re‑ingested for continual eval.
+
+---
+
+#### 5 · Evaluation harness
+
+* **Retrieval** – MRR\@10 vs. labelled recall + DTC pairs.
+* **Answer quality** – Rouge‑L & embedding‑sim against gold explanations.
+* **Agent robustness** – 50 synthetic adversarial prompts (unicode VINs, nonsense codes).
+
+All metrics run nightly in CI; failures block merge.
+
+---
+
+#### 6 · Interface & monitoring
+
+* **Streamlit (MVP)** or lightweight Next.js dashboard:
+
+  * query box, vehicle picker, answer panel with inline citations,
+  * trace viewer (tool calls, tokens, latency),
+  * Prometheus/Grafana for CPU‑mem, vector‑DB QPS, API error rates.
+
+---
+
+#### 7 · Dev‑ops & quality gates
+
+| Stage               | Tooling                                                                   |
+| ------------------- | ------------------------------------------------------------------------- |
+| **Version control** | Conventional commits, trunk‑based Git flow                                |
+| **CI**              | GitHub Actions → lint (ruff), type‑check (mypy), unit + vector‑eval suite |
+| **Container**       | Multi‑stage Docker (Slim + GPU variant)                                   |
+| **IaC**             | Terraform module for Qdrant + Postgres on AWS Fargate                     |
+| **CD**              | Argo Rollouts blue‑green; Sentry alerts wired to Slack                    |
+
+All notebooks and prompt versions hashed & stored in the repo.
+
+---
+
+#### 8 · Week‑by‑week maker schedule (adjust to your runway)
+
+| Week  | Milestone                                                                   |
+| ----- | --------------------------------------------------------------------------- |
+| **1** | Schema design → Postgres spin‑up → NHTSA & OBD loaders                      |
+| **2** | Embedding + Qdrant index → retrieval API w/ tests                           |
+| **3** | ReAct loop (LangChain or custom) → edge‑case handlers → unit & eval harness |
+| **4** | Streamlit UI → CI/CD pipeline → dashboard & observability                   |
+| **5** | Polish: synthetic adversarial set, README, 5‑min demo reel                  |
+
+Total ≈ 40‑45 focused hours; compressible if foundations already solid.
+
+---
+
+#### 9 · How it ticks every Conexio AI box
+
+| Job need                 | Where it shows up                              |
+| ------------------------ | ---------------------------------------------- |
+| **Python mastery**       | custom ReAct agent, Airflow DAGs, pytest suite |
+| **Agentic & RAG**        | retrieval layer + ReAct loop                   |
+| **SQL & data pipelines** | Postgres schema, daily ETL, Iceberg telemetry  |
+| **Git, tests, evals**    | GH Actions enforcing lint, unit, vector‑eval   |
+| **Deployment workflows** | Docker → Fargate, Argo blue‑green rollouts     |
+| **Dashboards**           | Streamlit UI + Grafana metrics                 |
+| **Car enthusiasm**       | uses real recalls, OBD‑II codes, sensor graphs |
+
+---
+
+### Next action
+
+Fork the repo template (I can scaffold one for you), start **Week 1** tasks today, and schedule a 15‑minute mock code‑review once your retrieval API passes tests. You’ll then enter the interview room with a live URL, passing CI badge, and the story to prove you can “build end‑to‑end, edge‑cases included.”
+
+[1]: https://www.nhtsa.gov/nhtsa-datasets-and-apis?utm_source=chatgpt.com "NHTSA Datasets and APIs"
+[2]: https://github.com/mytrile/obd-trouble-codes/blob/master/obd-trouble-codes.csv?utm_source=chatgpt.com "obd-trouble-codes.csv - GitHub"
+[3]: https://www.kaggle.com/datasets/ankitp013/automobile-telematics-dataset?utm_source=chatgpt.com "Automobile Telematics Dataset - Kaggle"
+
+
+Below is a **starter code scaffold** that lines up one‑to‑one with the 12 roadmap steps.
+Every file lives in a flat **monorepo**; you can re‑arrange into packages later.
+Run the snippets in order—each step’s file depends only on the earlier ones.
+
+---
+
+## 0 · Project bootstrap
+
+<details><summary><code>.gitignore</code></summary>
+
+```gitignore
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.env
+
+# Data & models
+data/
+*.parquet
+*.db
+
+# Docker / Build
+*.env
+.env.*
+dist/
+build/
+
+# VSCode / PyCharm
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+```
+
+</details>
+
+<details><summary><code>pyproject.toml</code></summary>
+
+```toml
+[project]
+name = "autosense_agentic_rag"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "psycopg[binary]",
+    "sqlalchemy>=2",
+    "qdrant-client>=1.7",
+    "sentence-transformers",
+    "pydantic",
+    "python-dotenv",
+    "pytest",
+    "httpx",
+    "ruff",
+    "mypy",
+    "streamlit",
+]
+
+[tool.ruff]
+line-length = 100
+```
+
+</details>
+
+---
+
+## 1 · Schema (SQL DDL)
+
+<details><summary><code>sql/schema.sql</code></summary>
+
+```sql
+-- vehicles
+CREATE TABLE vehicle (
+    id SERIAL PRIMARY KEY,
+    vin CHAR(17) UNIQUE NOT NULL,
+    make TEXT,
+    model TEXT,
+    year INT
+);
+
+-- trouble codes
+CREATE TABLE dtc (
+    code VARCHAR(7) PRIMARY KEY,
+    category TEXT,
+    description TEXT
+);
+
+-- recalls
+CREATE TABLE recall (
+    id SERIAL PRIMARY KEY,
+    nhtsa_id INT,
+    vin CHAR(17),
+    date DATE,
+    summary TEXT
+);
+
+-- time‑series sensors (partition later if needed)
+CREATE TABLE sensor_reading (
+    id BIGSERIAL PRIMARY KEY,
+    vehicle_id INT REFERENCES vehicle(id),
+    ts TIMESTAMP,
+    sensor TEXT,
+    value DOUBLE PRECISION
+);
+```
+
+</details>
+
+Run:
+
+```bash
+docker compose exec postgres psql -U postgres -f /sql/schema.sql
+```
+
+---
+
+## 2 · Local infra (Docker Compose)
+
+<details><summary><code>docker-compose.yml</code></summary>
+
+```yaml
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: example
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql:/sql
+    ports: ["5432:5432"]
+
+  qdrant:
+    image: qdrant/qdrant:v1.7.3
+    volumes:
+      - qdrantdata:/qdrant/storage
+    ports: ["6333:6333"]
+
+  app:
+    build: .
+    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+    volumes: [".:/code"]
+    environment:
+      - DATABASE_URL=postgresql+psycopg://postgres:example@postgres:5432/postgres
+      - QDRANT_URL=http://qdrant:6333
+    depends_on: [postgres, qdrant]
+    ports: ["8000:8000"]
+
+volumes:
+  pgdata:
+  qdrantdata:
+```
+
+</details>
+
+---
+
+## 3 · Data ingestion
+
+### 3.1 NHTSA Recalls Loader – <code>ingest/recalls.py</code>
+
+```python
+import requests, os, psycopg
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
+load_dotenv()
+
+API = "https://api.nhtsa.gov/recalls/recallsByVehicle"
+DB  = os.environ["DATABASE_URL"]
+
+def fetch_recalls(days: int = 30):
+    since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+    return requests.get(f"{API}?prodType=A&modelYear=&make=&model=&manufacturer=&recallDate={since}").json()["results"]
+
+def save(rows):
+    with psycopg.connect(DB) as conn, conn.cursor() as cur:
+        for r in rows:
+            cur.execute(
+                "INSERT INTO recall (nhtsa_id, vin, date, summary) VALUES (%s,%s,%s,%s) "
+                "ON CONFLICT DO NOTHING",
+                (r["NHTSACampaignNumber"], r.get("VIN", "")[:17],
+                 r["RecallDate"], r["Summary"]))
+        conn.commit()
+
+if __name__ == "__main__":
+    save(fetch_recalls())
+```
+
+### 3.2 OBD‑II CSV Loader – <code>ingest/dtc.py</code>
+
+```python
+import csv, psycopg, os, pathlib
+DB = os.environ["DATABASE_URL"]
+CSV = pathlib.Path("data/obd_codes.csv")
+
+with psycopg.connect(DB) as conn, conn.cursor() as cur, open(CSV) as f:
+    for code, cat, desc in csv.reader(f):
+        cur.execute("INSERT INTO dtc (code, category, description) VALUES (%s,%s,%s) "
+                    "ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description",
+                    (code, cat, desc))
+    conn.commit()
+```
+
+*(A Kaggle sensor dataset loader is similar—parquet → COPY.)*
+
+---
+
+## 4 · Embedding + index – <code>index/build\_index.py</code>
+
+```python
+import os, psycopg, tqdm
+from qdrant_client import QdrantClient
+from sentence_transformers import SentenceTransformer
+
+DB = os.environ["DATABASE_URL"]
+client = QdrantClient(os.getenv("QDRANT_URL", "http://localhost:6333"))
+model  = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
+def iter_text():
+    with psycopg.connect(DB) as conn, conn.cursor() as cur:
+        cur.execute("SELECT code, description FROM dtc")
+        for code, desc in cur:
+            yield f"DTC {code}: {desc}", {"type": "dtc", "code": code}
+        cur.execute("SELECT nhtsa_id, summary FROM recall")
+        for rid, summ in cur:
+            yield summ, {"type": "recall", "rid": int(rid)}
+
+vecs, metas, ids = [], [], []
+for i, (text, meta) in enumerate(tqdm.tqdm(iter_text())):
+    vecs.append(model.encode(text, normalize_embeddings=True))
+    metas.append(meta)
+    ids.append(i)
+
+client.recreate_collection("autosense", vector_size=len(vecs[0]), distance="Cosine")
+client.upload_collection("autosense", ids, vecs, metas)
+```
+
+---
+
+## 5 · FastAPI retrieval – <code>api.py</code>
+
+```python
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
+from qdrant_client import QdrantClient, models
+import os, psycopg
+
+app  = FastAPI()
+model  = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+qdrant = QdrantClient(os.getenv("QDRANT_URL", "http://qdrant:6333"))
+DB     = os.environ["DATABASE_URL"]
+
+class SearchReq(BaseModel):
+    query: str
+    k: int = 5
+    vin: str | None = None
+
+@app.post("/search")
+def search(body: SearchReq):
+    if not body.query:
+        raise HTTPException(400, "Empty query")
+    emb = model.encode(body.query, normalize_embeddings=True)
+    res = qdrant.search(
+        collection_name="autosense",
+        query_vector=emb,
+        limit=body.k,
+        query_filter=models.Filter(
+            must=[models.FieldCondition(key="vin", match=models.MatchValue(value=body.vin))]
+        ) if body.vin else None
+    )
+    return [{"score": r.score, **r.payload} for r in res]
+```
+
+### 5.1 Unit test – <code>tests/test\_search.py</code>
+
+```python
+import httpx, pytest
+
+@pytest.mark.asyncio
+async def test_dtc_lookup():
+    async with httpx.AsyncClient(base_url="http://app:8000") as c:
+        r = await c.post("/search", json={"query": "P0420", "k": 3})
+    assert r.status_code == 200
+    assert any("P0420" in hit["code"] for hit in r.json())
+```
+
+---
+
+## 6 · ReAct agent – <code>agent/core.py</code>
+
+```python
+from typing import List
+import httpx, openai, os
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+PROMPT = """You are AutoSense, an automotive diagnostic agent. Follow ReAct:
+Thought 1: understand the problem
+Action 1: call /search
+Observation 1: (search results)
+...
+Answer: final explanation with repair steps and citations."""
+
+async def react(query: str, vin: str | None = None) -> str:
+    thoughts: List[str] = []
+    async with httpx.AsyncClient() as client:
+        # Thought
+        thoughts.append("Thought 1: Determine relevant trouble code or symptom.")
+        # Action
+        sr = await client.post("http://app:8000/search", json={"query": query, "vin": vin})
+        obs = sr.json()
+        thoughts.append(f"Observation 1: {obs[:2]}")
+    # Compose LLM call
+    messages=[{"role":"system","content":PROMPT},{"role":"user","content":query+"\n".join(thoughts)}]
+    resp = openai.ChatCompletion.create(model="gpt-4o-mini", messages=messages)
+    return resp.choices[0].message.content
+```
+
+*(Swap with open‑source LLM if no API key.)*
+
+---
+
+## 7 · Edge‑case hooks – <code>agent/errors.py</code>
+
+```python
+class QueryError(Exception): ...
+
+def ensure(query: str):
+    if not query.strip():
+        raise QueryError("EMPTY_QUERY")
+    if len(query) > 500:
+        raise QueryError("LONG_INPUT")
+```
+
+Use inside `react()` before calls.
+
+---
+
+## 8 · Eval harness – <code>eval/run\_eval.py</code>
+
+```python
+import json, httpx, pandas as pd, tqdm, numpy as np, evaluate
+
+DATA = json.load(open("eval/labelled.json"))
+mrr = evaluate.load("mean_reciprocal_rank")
+rouge = evaluate.load("rouge")
+
+async def main():
+    scores, preds = [], []
+    async with httpx.AsyncClient(base_url="http://app:8000") as c:
+        for row in tqdm.tqdm(DATA):
+            r = await c.post("/search", json={"query": row["query"], "k": 10})
+            hits = r.json()
+            gold_codes = row["gold_codes"]
+            scores.append([1 if h.get("code") in gold_codes else 0 for h in hits])
+            preds.append(" ".join(h.get("description","") for h in hits[:1]))
+    print("MRR:", np.mean([max((1/(i+1)) for i,v in enumerate(s) if v) if any(s) else 0 for s in scores]))
+    print("Rouge‑L:", rouge.compute(predictions=preds, references=[r["reference"] for r in DATA])["rougeL"])
+if __name__ == "__main__":
+    import asyncio; asyncio.run(main())
+```
+
+---
+
+## 9 · Streamlit UI – <code>ui/app.py</code>
+
+```python
+import streamlit as st, httpx, asyncio
+
+st.title("AutoSense – Agentic RAG for Cars")
+query = st.text_input("Symptom, DTC code, or question")
+vin   = st.text_input("VIN (optional)")
+if st.button("Diagnose") and query:
+    async def diagnose():
+        async with httpx.AsyncClient(base_url="http://app:8000") as c:
+            r = await c.post("/search", json={"query": query,"vin": vin})
+        st.write("Top hits:", r.json())
+        from agent.core import react
+        ans = await react(query, vin or None)
+        st.markdown(ans)
+    asyncio.run(diagnose())
+```
+
+---
+
+## 10 · GitHub Actions – <code>.github/workflows/ci.yml</code>
+
+```yaml
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: {POSTGRES_PASSWORD: example}
+        ports: ["5432:5432"]
+      qdrant:
+        image: qdrant/qdrant:v1.7.3
+        ports: ["6333:6333"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -e ".[dev]"
+      - run: docker compose up -d postgres qdrant
+      - run: pytest -q
+      - run: python eval/run_eval.py
+```
+
+---
+
+## 11 · Architecture diagram (README Mermaid)
+
+````markdown
+```mermaid
+flowchart TD
+    User -->|HTTP| UI[Streamlit]
+    UI -->|REST /agent| APP[FastAPI+ReAct]
+    APP -->|/search| QDRANT
+    APP -->|SQLAlchemy| PG[(Postgres)]
+    Ingest[Airflow ETL] --> PG
+    Ingest --> QDRANT
+````
+
+````
+
+---
+
+## 12 · Demo script (excerpt)
+
+```text
+1. open https://autosense-demo.vercel.app
+2. paste VIN "2HGFC2F59JH000001" & code "P0420"
+3. show instant explanation with recalls + repair steps
+4. switch to Grafana tab – highlight 120 ms p95 latency
+````
+
+---
+
+### **Next steps**
+
+1. `docker compose up --build` – verify `/search` returns results.
+2. Add **OpenAI key** (or swap to local model) → `react()` round‑trips.
+3. Push to GitHub; CI should pass.
+4. Deploy to Fly.io, Render, or AWS Fargate with same container.
+
+Ping me once you hit any blocker—happy to iterate on specific modules or extend tests!
+
+
+
