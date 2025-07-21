@@ -45,7 +45,9 @@ flowchart TD
 
 - Python 3.10+
 - Docker and Docker Compose
-- OpenAI API key (optional, for LLM features)
+- **OpenAI API key** (required for agent functionality)
+
+> **Note**: The ReAct agent requires an OpenAI API key to function. If you don't have one, you can still use the search endpoints, but the `/agent` endpoint will return fallback responses.
 
 ### 1. Clone and Setup
 
@@ -56,8 +58,14 @@ cd AutoSense
 
 ### 2. Environment Configuration
 
-Create a `.env` file:
+Copy the example environment file and configure it:
 
+```bash
+cp .env.example .env
+# Edit .env and add your OpenAI API key
+```
+
+Required environment variables:
 ```bash
 # Database
 DATABASE_URL=postgresql+psycopg://postgres:example@localhost:5432/postgres
@@ -65,8 +73,8 @@ DATABASE_URL=postgresql+psycopg://postgres:example@localhost:5432/postgres
 # Vector Database
 QDRANT_URL=http://localhost:6333
 
-# OpenAI (optional)
-OPENAI_API_KEY=your_openai_api_key_here
+# OpenAI API (REQUIRED for agent functionality)
+OPENAI_API_KEY=sk-your-openai-api-key-here
 
 # API Configuration
 API_BASE_URL=http://localhost:8000

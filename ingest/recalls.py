@@ -1,15 +1,19 @@
 import requests
 import os
-import sqlite3
+import psycopg
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from typing import List, Dict, Any
+import argparse
 
 load_dotenv()
 
 # NHTSA API endpoints
 VPIC_API = "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/"
 RECALL_API = "https://api.nhtsa.gov/recalls/recallsByVehicle"
+
+# Database connection
+DB = os.environ.get("DATABASE_URL", "postgresql+psycopg://postgres:example@localhost:5432/postgres")
 
 
 def decode_vin(vin: str) -> Dict[str, str]:
@@ -84,17 +88,41 @@ def fetch_recalls_from_vins(vins: List[str]) -> List[Dict[str, Any]]:
     return all_recalls
 
 
-def fetch_recalls(days: int = 30) -> List[Dict[str, Any]]:
-    """Fetch recalls using sample VINs for testing."""
-    # Sample VINs for testing
-    sample_vins = [
-        "2HGFC2F59JH000001",  # Honda Civic
-        "1HGBH41JXMN109186",  # Honda Civic
-        "3VWDX7AJ5DM123456",  # Volkswagen Jetta
-    ]
+def get_vins_from_database() -> List[str]:
+    """Get VINs from the database instead of hard-coded list."""
+    try:
+        with psycopg.connect(DB) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT DISTINCT vin FROM vehicle WHERE vin IS NOT NULL AND LENGTH(vin) = 17")
+                vins = [row[0] for row in cur.fetchall()]
+                print(f"Found {len(vins)} VINs in database")
+                return vins
+    except Exception as e:
+        print(f"Error fetching VINs from database: {e}")
+        # Fallback to sample VINs if database query fails
+        return [
+            "2HGFC2F59JH000001",  # Honda Civic
+            "1HGBH41JXMN109186",  # Honda Civic
+            "3VWDX7AJ5DM123456",  # Volkswagen Jetta
+        ]
+
+
+def fetch_recalls(days: int = 30, use_sample: bool = False) -> List[Dict[str, Any]]:
+    """Fetch recalls using VINs from database or sample VINs."""
+    if use_sample:
+        print("Using sample VINs for testing...")
+        sample_vins = [
+            "2HGFC2F59JH000001",  # Honda Civic
+            "1HGBH41JXMN109186",  # Honda Civic
+            "3VWDX7AJ5DM123456",  # Volkswagen Jetta
+        ]
+        vins = sample_vins
+    else:
+        print("Fetching VINs from database...")
+        vins = get_vins_from_database()
     
-    print("Fetching recalls for sample VINs...")
-    recalls = fetch_recalls_from_vins(sample_vins)
+    print(f"Fetching recalls for {len(vins)} VINs...")
+    recalls = fetch_recalls_from_vins(vins)
     
     if not recalls:
         print("No recalls found, using sample data")
@@ -128,36 +156,43 @@ def get_sample_recalls() -> List[Dict[str, Any]]:
 
 
 def save(rows: List[Dict[str, Any]]) -> None:
-    """Save recall data to SQLite database."""
+    """Save recall data to PostgreSQL database."""
     if not rows:
         print("No recalls to save")
         return
     
-    conn = sqlite3.connect("autosense.db")
-    cursor = conn.cursor()
-    
-    for r in rows:
-        try:
-            cursor.execute(
-                """INSERT OR REPLACE INTO recall (nhtsa_id, vin, date, summary) 
-                   VALUES (?, ?, ?, ?)""",
-                (
-                    r.get("NHTSACampaignNumber"),
-                    r.get("VIN", "")[:17] if r.get("VIN") else None,
-                    r.get("RecallDate"),
-                    r.get("Summary", "")
-                )
-            )
-        except Exception as e:
-            print(f"Error inserting recall {r.get('NHTSACampaignNumber')}: {e}")
-    
-    conn.commit()
-    conn.close()
-    print(f"Saved {len(rows)} recalls to database")
+    try:
+        with psycopg.connect(DB) as conn:
+            with conn.cursor() as cur:
+                for r in rows:
+                    try:
+                        cur.execute(
+                            """INSERT INTO recall (nhtsa_id, vin, date, summary) 
+                               VALUES (%s, %s, %s, %s)
+                               ON CONFLICT (nhtsa_id) DO NOTHING""",
+                            (
+                                r.get("NHTSACampaignNumber"),
+                                r.get("VIN", "")[:17] if r.get("VIN") else None,
+                                r.get("RecallDate"),
+                                r.get("Summary", "")
+                            )
+                        )
+                    except Exception as e:
+                        print(f"Error inserting recall {r.get('NHTSACampaignNumber')}: {e}")
+                
+                conn.commit()
+                print(f"Saved {len(rows)} recalls to database")
+    except Exception as e:
+        print(f"Database connection error: {e}")
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Fetch NHTSA recalls")
+    parser.add_argument("--ci", action="store_true", help="Use sample VINs for CI testing")
+    parser.add_argument("--lookback", type=int, default=30, help="Days to look back for recalls")
+    args = parser.parse_args()
+    
     print("Fetching NHTSA recalls...")
-    recalls = fetch_recalls()
+    recalls = fetch_recalls(days=args.lookback, use_sample=args.ci)
     print(f"Found {len(recalls)} recalls")
     save(recalls) 

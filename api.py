@@ -49,6 +49,25 @@ class SearchResponse(BaseModel):
     total_found: int
 
 
+class AgentRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500, description="Diagnostic query")
+    vin: Optional[str] = Field(None, max_length=17, description="Vehicle identification number")
+
+
+class AgentResponse(BaseModel):
+    query: str
+    vin: Optional[str]
+    dtc_code: Optional[str]
+    answer: str
+    thoughts: List[str]
+    actions: List[str]
+    observations: List[str]
+    search_results: List[Dict[str, Any]]
+    recalls: List[Dict[str, Any]]
+    processing_time: float
+    timestamp: str
+
+
 class HealthResponse(BaseModel):
     status: str
     services: Dict[str, str]
@@ -244,6 +263,24 @@ async def get_recalls_for_vin(vin: str, db_url: str = Depends(get_db_url)):
         raise HTTPException(status_code=500, detail="Database error")
 
 
+# Agent endpoint
+@app.post("/agent", response_model=AgentResponse)
+async def run_agent(request: AgentRequest):
+    """Run the ReAct agent for automotive diagnostics."""
+    try:
+        from agent.core import AutoSenseAgent
+        
+        agent = AutoSenseAgent()
+        result = await agent.react(request.query, request.vin)
+        await agent.close()
+        
+        return AgentResponse(**result)
+        
+    except Exception as e:
+        logger.error(f"Agent execution failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Agent failed: {str(e)}")
+
+
 # Root endpoint
 @app.get("/")
 async def root():
@@ -255,6 +292,7 @@ async def root():
         "endpoints": {
             "health": "/health",
             "search": "/search",
+            "agent": "/agent",
             "dtc_info": "/dtc/{code}",
             "recalls": "/recalls/{vin}"
         }

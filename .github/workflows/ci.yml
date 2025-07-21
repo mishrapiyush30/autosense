@@ -87,7 +87,7 @@ jobs:
         run: |
           export DATABASE_URL="postgresql+psycopg://postgres:${{ env.POSTGRES_PASSWORD }}@localhost:5432/postgres"
           python ingest/dtc.py
-          python ingest/recalls.py
+          python ingest/recalls.py --ci --lookback 90
 
       - name: Build vector index
         run: |
